@@ -85,6 +85,8 @@ installs both bootloaders for a generic VM image. Use a new filename; `truncate`
 does not reset an existing file's contents.
 
 ```sh
+(
+set -eu
 mkdir -p output
 test ! -e output/alma-hci.img
 truncate -s 20G output/alma-hci.img
@@ -100,6 +102,7 @@ sudo podman run --rm --privileged --pid=host \
   --enforce-container-sigpolicy \
   --root-ssh-authorized-keys=/run/admin.pub \
   /output/alma-hci.img
+)
 ```
 
 For example, attach the result as a raw virtio disk in libvirt/virt-install:
