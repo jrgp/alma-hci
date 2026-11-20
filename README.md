@@ -138,6 +138,11 @@ sudo bootc rollback
 [CI](https://github.com/jrgp/alma-hci/actions/workflows/build.yml) checks
 upstream daily at **08:37 UTC**. Unchanged base, build inputs and installed
 RPMs skip the build and push. Code changes always build and test.
+Each published build gets a matching Git/image tag such as
+`10-20261120.42.1` (UTC date, workflow run number, attempt).
+[Releases](https://github.com/jrgp/alma-hci/releases) show RPM additions,
+removals and version changes against the previous published image, with a
+complete package inventory attached. Rebuilds can share the same source commit.
 Publication requires Secure Boot tests rejecting ZFS before enrollment and
 two ZFS/KVM boots after enrollment, with SELinux enforcing. Container-policy
 tests also reject unsigned images and accept signed ones.

@@ -3,9 +3,35 @@ set -euo pipefail
 
 : "${IMAGE_REF:?}" "${LOCAL_IMAGE:?}" "${GITHUB_RUN_ID:?}" "${GITHUB_RUN_ATTEMPT:?}"
 : "${COSIGN_PRIVATE_KEY:?}" "${REGISTRY_AUTH_FILE:?}"
+: "${GITHUB_SHA:?}" "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}"
 
 mkdir -p output
 cosign public-key --key env://COSIGN_PRIVATE_KEY | cmp - cosign.pub
+version="$(sudo podman image inspect "$LOCAL_IMAGE" \
+    --format '{{index .Labels "org.opencontainers.image.version"}}')"
+[[ "$version" =~ ^[0-9]{8}\.[0-9]+\.[0-9]+$ ]]
+release_tag="10-${version}"
+rpm_format='%{NAME}\t%{ARCH}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n'
+sudo podman run --rm "$LOCAL_IMAGE" rpm -qa --qf "$rpm_format" \
+    > output/current-packages.tsv
+previous_reference=""
+previous_options=()
+if skopeo inspect "docker://${IMAGE_REF}:10" > output/previous-image.json \
+    2> output/previous-image-inspect.log; then
+    previous_digest="$(jq -er .Digest output/previous-image.json)"
+    previous_reference="${IMAGE_REF}@${previous_digest}"
+    cosign verify --insecure-ignore-tlog=true --key cosign.pub \
+        "$previous_reference" > /dev/null
+    sudo --preserve-env=REGISTRY_AUTH_FILE podman run --rm "$previous_reference" \
+        rpm -qa --qf "$rpm_format" > output/previous-packages.tsv
+    previous_options=(--previous output/previous-packages.tsv)
+elif grep -Fi 'manifest unknown' output/previous-image-inspect.log; then
+    echo "No previously published :10 image; this is the first publication."
+else
+    cat output/previous-image-inspect.log >&2
+    echo "Cannot inspect the previous image; refusing to publish an incomplete diff" >&2
+    exit 1
+fi
 candidate="${IMAGE_REF}:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 sudo --preserve-env=REGISTRY_AUTH_FILE podman push --format=oci \
     --digestfile output/published-digest "$LOCAL_IMAGE" "docker://${candidate}"
@@ -39,13 +65,26 @@ cosign verify --insecure-ignore-tlog=true --key cosign.pub "$reference" \
 skopeo inspect --raw "docker://${IMAGE_REF}:${digest/:/-}.sig" > /dev/null
 verify_with_host_policy > output/signed-acceptance.log 2>&1
 
-for tag in 10 latest; do
+jq -n --arg image "$reference" --arg candidate "$candidate" \
+    --arg release_tag "$release_tag" --arg previous "$previous_reference" \
+    --arg revision "$GITHUB_SHA" \
+    '{image: $image, candidate: $candidate, release_tag: $release_tag,
+      previous_image: (if $previous == "" then null else $previous end),
+      revision: $revision, signatures: "verified", policy: "unsigned rejected; signed accepted"}' \
+    > output/published.json
+python3 ci/release-notes.py --current output/current-packages.tsv \
+    "${previous_options[@]}" --metadata output/published.json \
+    --repository "$GITHUB_REPOSITORY" \
+    --run-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+    --output output
+
+for tag in "$release_tag" 10 latest; do
     skopeo copy --preserve-digests "docker://${reference}" "docker://${IMAGE_REF}:${tag}"
 done
-jq -n --arg image "$reference" --arg candidate "$candidate" \
-    '{image: $image, candidate: $candidate, signatures: "verified", policy: "unsigned rejected; signed accepted"}' \
-    > output/published.json
+gh release create "$release_tag" --repo "$GITHUB_REPOSITORY" \
+    --target "$GITHUB_SHA" --title "Alma HCI ${release_tag}" --latest \
+    --notes-file output/release-notes.md \
+    output/packages.json output/published.json output/signature.json
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    printf '## Published\n\n`%s`\n\nTags: `10`, `latest`, `%s`.\n\nUnsigned rejection and signed acceptance passed using the image policy.\n' \
-        "$reference" "${candidate##*:}" >> "$GITHUB_STEP_SUMMARY"
+    cat output/release-notes.md >> "$GITHUB_STEP_SUMMARY"
 fi

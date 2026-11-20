@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write
       packages: write
     env:
       LOCAL_IMAGE: localhost/alma-hci:ci
@@ -145,6 +145,7 @@ jobs:
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           COSIGN_PASSWORD: ''
+          GH_TOKEN: ${{ github.token }}
         run: bash ci/publish.sh
       - name: Make non-secret evidence readable for upload
         if: always()
@@ -175,3 +176,6 @@ jobs:
             output/signature.json
             output/unsigned-rejection.log
             output/signed-acceptance.log
+            output/packages.json
+            output/release-notes.md
+            output/previous-image-inspect.log
