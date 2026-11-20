@@ -4,7 +4,7 @@ Headless AlmaLinux 10 bootc server: **`ghcr.io/jrgp/alma-hci:10`**
 (`latest` is an alias). Based on the
 [AlmaLinux atomic respin template](https://github.com/AlmaLinux/atomic-respin-template).
 
-Includes libvirt/KVM, QEMU, OVMF, `virsh`, `virt-install`, OpenZFS, Bash,
+Includes libvirt/KVM, QEMU, OVMF, `virsh`, `virt-install`, OpenZFS, Git, Bash,
 `ip`/`bridge`, `brctl`, NetworkManager/`nmcli`, `nmstatectl`, SSH/sshd,
 Docker CE/Compose/Buildx, NFS server tools, WireGuard/`wg-quick`, chrony and
 SELinux. ZFS kmods are built for the bundled kernel during the

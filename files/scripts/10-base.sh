@@ -19,7 +19,7 @@ dnf install -y --setopt=install_weak_deps=False --exclude='kernel*' --exclude=dk
     zfs /zfs-rpms/kmod-zfs-*.rpm \
     libvirt-daemon-kvm libvirt-client libvirt-daemon-config-network \
     virt-install qemu-kvm qemu-img edk2-ovmf \
-    bash iproute bridge-utils NetworkManager nmstate \
+    bash git iproute bridge-utils NetworkManager nmstate \
     openssh-clients openssh-server chrony mokutil openssl \
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
     nfs-utils rpcbind wireguard-tools
