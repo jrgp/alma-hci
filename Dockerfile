@@ -8,8 +8,11 @@ COPY --chmod=0755 files/scripts /build_files/
 COPY *.pub /keys/
 
 FROM ${BASE_IMAGE} AS zfs-kmod
+ARG ZFS_SIGNING_CERT_SHA256
 COPY ci/build-zfs-kmod.sh /build-zfs-kmod.sh
-RUN bash /build-zfs-kmod.sh
+RUN --mount=type=secret,id=zfs_signing_key \
+    --mount=type=secret,id=zfs_signing_cert \
+    bash /build-zfs-kmod.sh
 
 # Base Image
 FROM ${BASE_IMAGE}

@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-stage="${1:?expected first or reboot}"
-[[ "$stage" == first || "$stage" == reboot ]]
+stage="${1:?expected untrusted, first or reboot}"
+[[ "$stage" == untrusted || "$stage" == first || "$stage" == reboot ]]
 [[ "$(systemctl get-default)" == multi-user.target ]]
 [[ "$(getenforce)" == Enforcing ]]
+mokutil --sb-state | grep -x 'SecureBoot enabled'
+grep -E '\[(integrity|confidentiality)\]' /sys/kernel/security/lockdown
+if [[ "$stage" == untrusted ]]; then
+    if mokutil --test-key /usr/share/alma-hci/zfs.der; then
+        echo "The negative test already trusts the ZFS certificate" >&2
+        exit 1
+    fi
+    test ! -d /sys/module/zfs
+    if modprobe zfs > /var/tmp/zfs-rejection.log 2>&1; then
+        echo "Secure Boot accepted a module without the enrolled key" >&2
+        exit 1
+    fi
+    cat /var/tmp/zfs-rejection.log
+    grep -Ei 'Key was rejected by service|Required key not available' /var/tmp/zfs-rejection.log
+    echo "PASS: Secure Boot boots Alma but rejects ZFS before enrollment"
+    exit 0
+fi
+mokutil --test-key /usr/share/alma-hci/zfs.der
 systemctl is-active NetworkManager.service sshd.service
 ip -brief address
 brctl show

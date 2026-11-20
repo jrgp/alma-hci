@@ -4,7 +4,11 @@ set -euo pipefail
 bootc container lint
 rpm -q bootc kernel-core zfs kmod-zfs libvirt-daemon-kvm libvirt-client \
     qemu-kvm virt-install bash iproute bridge-utils NetworkManager nmstate \
-    openssh-clients openssh-server
+    openssh-clients openssh-server mokutil openssl
+cmp /expected-zfs.der /usr/share/alma-hci/zfs.der
+openssl x509 -inform DER -in /usr/share/alma-hci/zfs.der -noout -subject -fingerprint -sha256
+expected_key="$(openssl x509 -inform DER -in /usr/share/alma-hci/zfs.der -noout -serial \
+    | cut -d = -f 2 | tr '[:lower:]' '[:upper:]')"
 ip -Version
 brctl --version
 nmcli --version
@@ -35,4 +39,12 @@ for kernel in /usr/lib/modules/*/vmlinuz; do
     modprobe --set-version "$kver" --show-depends kvm_amd
     modprobe --set-version "$kver" --show-depends kvm_intel
 done
+modules=0
+while IFS= read -r module; do
+    [[ -n "$(modinfo -F signer "$module")" ]]
+    [[ "$(modinfo -F sig_key "$module" | tr -d : | tr '[:lower:]' '[:upper:]')" == "$expected_key" ]]
+    [[ "$(modinfo -F sig_hashalgo "$module")" == sha256 ]]
+    modules=$((modules + 1))
+done < <(rpm -ql kmod-zfs | grep -E '\.ko(\.(xz|gz|zst))?$')
+(( modules > 0 ))
 echo "PASS: image checks (module loading requires the VM test)"

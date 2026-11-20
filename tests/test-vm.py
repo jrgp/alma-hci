@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the local image into a sparse file; test two real KVM boots."""
+"""Test Secure Boot rejection, MOK trust and two ZFS/KVM boots."""
 
 import fcntl
 import json
@@ -41,7 +41,9 @@ def wait_ssh(ssh, qemu):
 def main():
     if os.geteuid() != 0:
         raise RuntimeError("Run with sudo (the installer uses rootful Podman)")
-    for program in ("podman", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen"):
+    for program in (
+        "podman", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", "virt-fw-vars",
+    ):
         if shutil.which(program) is None:
             raise RuntimeError(f"Missing dependency: {program}")
     if not os.access("/dev/kvm", os.R_OK | os.W_OK):
@@ -62,24 +64,33 @@ def test():
     disk = OUTPUT / "disk.raw"
     data_disk = OUTPUT / "zfs.raw"
     key = OUTPUT / "id_ed25519"
-    firmware = next(
+    firmware_pair = next(
         (
-            Path(path)
-            for path in (
-                "/usr/share/edk2/ovmf/OVMF_CODE.fd",
-                "/usr/share/OVMF/OVMF_CODE.fd",
-                "/usr/share/OVMF/OVMF_CODE_4M.fd",
+            (Path(code), Path(variables))
+            for code, variables in (
+                ("/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd",
+                 "/usr/share/edk2/ovmf/OVMF_VARS.fd"),
+                ("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
+                 "/usr/share/OVMF/OVMF_VARS_4M.fd"),
+                ("/usr/share/OVMF/OVMF_CODE.secboot.fd",
+                 "/usr/share/OVMF/OVMF_VARS.fd"),
             )
-            if Path(path).exists()
+            if Path(code).exists() and Path(variables).exists()
         ),
         None,
     )
-    if firmware is None:
-        raise RuntimeError("Install OVMF UEFI firmware (edk2-ovmf or ovmf)")
-    variables = firmware.with_name(firmware.name.replace("CODE", "VARS"))
-    if not variables.exists():
-        raise RuntimeError(f"Missing matching UEFI variables template: {variables}")
-    shutil.copyfile(variables, OUTPUT / "OVMF_VARS.fd")
+    if firmware_pair is None:
+        raise RuntimeError("Install Secure Boot OVMF firmware (edk2-ovmf or ovmf)")
+    firmware, variables = firmware_pair
+    nvram = OUTPUT / "OVMF_VARS.fd"
+    run([
+        "virt-fw-vars", "--input", variables, "--output", nvram,
+        "--enroll-redhat", "--sb",
+    ])
+    cert = OUTPUT / "zfs.der"
+    with cert.open("wb") as stream:
+        run(["podman", "run", "--rm", IMAGE, "cat", "/usr/share/alma-hci/zfs.der"],
+            stdout=stream)
     if not key.exists():
         run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key])
     for path, size in ((disk, "12G"), (data_disk, "1G")):
@@ -122,7 +133,8 @@ def test():
     ]
     (OUTPUT / "known_hosts").unlink(missing_ok=True)
     command = [
-        "qemu-system-x86_64", "-machine", "q35,accel=kvm", "-cpu", "host",
+        "qemu-system-x86_64", "-machine", "q35,accel=kvm,smm=on", "-cpu", "host",
+        "-global", "driver=cfi.pflash01,property=secure,value=on",
         "-smp", "2", "-m", "3072", "-display", "none", "-monitor", "none",
         "-drive", f"if=pflash,format=raw,readonly=on,file={firmware}",
         "-drive", f"if=pflash,format=raw,file={OUTPUT / 'OVMF_VARS.fd'}",
@@ -144,6 +156,22 @@ def test():
             if status["status"]["booted"]["image"]["imageDigest"] != image["Digest"]:
                 raise RuntimeError("The booted image does not match the local image digest")
             with (OUTPUT / "checks.log").open("w") as log:
+                with (ROOT / "tests" / "guest-check.sh").open() as script:
+                    run(ssh + ["bash -s -- untrusted"], stdin=script, stdout=log,
+                        stderr=subprocess.STDOUT, timeout=180)
+                run(ssh + ["systemctl poweroff"], stdout=log, stderr=subprocess.STDOUT)
+                qemu.wait(timeout=60)
+                if qemu.returncode != 0:
+                    raise RuntimeError(f"Untrusted-key boot exited with {qemu.returncode}")
+                shutil.copyfile(OUTPUT / "serial.log", OUTPUT / "untrusted-serial.log")
+                enrolled = OUTPUT / "OVMF_VARS.enrolled.fd"
+                run([
+                    "virt-fw-vars", "--input", nvram, "--output", enrolled,
+                    "--add-mok", "605dab50-e046-4300-abb6-3dd810dd8b23", cert,
+                ])
+                enrolled.replace(nvram)
+                qemu = subprocess.Popen(command, stdout=qemu_log, stderr=subprocess.STDOUT)
+                wait_ssh(ssh, qemu)
                 with (ROOT / "tests" / "guest-check.sh").open() as script:
                     run(ssh + ["bash -s -- first"], stdin=script, stdout=log,
                         stderr=subprocess.STDOUT, timeout=180)
@@ -175,6 +203,9 @@ def test():
                 "image_digest": image["Digest"],
                 "result": "PASS",
                 "checks": [
+                    "Secure Boot enabled with kernel lockdown",
+                    "Alma boots but ZFS is rejected before MOK enrollment",
+                    "Signed ZFS loads after MOK enrollment",
                     "UEFI boot and reboot", "bootc deployment and immutable /usr",
                     "SELinux enforcing", "ZFS automatic module loading",
                     "ZFS pool IO, snapshot, clone, export/import, scrub",

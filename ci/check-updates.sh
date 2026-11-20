@@ -6,7 +6,7 @@ image="${IMAGE_REF:-ghcr.io/jrgp/alma-hci}"
 base_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${base_tag}")"
 base_image="${base_tag}@${base_digest}"
 source_hash="$(git ls-tree -r HEAD -- Dockerfile .containerignore files ci tests \
-    cosign.pub bootc.pub .github/workflows/build.yml | sha256sum | cut -d ' ' -f 1)"
+    cosign.pub bootc.pub zfs-signing.der .github/workflows/build.yml | sha256sum | cut -d ' ' -f 1)"
 
 cosign verify --key bootc.pub "$base_image" > /dev/null
 build=true

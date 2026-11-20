@@ -80,6 +80,34 @@ sudo virt-install --name alma-hci-test --memory 4096 --vcpus 2 \
   --network network=default --noautoconsole
 ```
 
+## Trust the ZFS modules with Secure Boot
+
+Alma's signed kernel and bootloader are unchanged: the OS can boot before
+enrollment, but ZFS cannot load until you trust its separate signing key.
+On an existing installation, run `sudo bootc upgrade` and reboot first to
+get the signed modules and certificate.
+
+Inside the installed system:
+
+```sh
+sudo mokutil --import /usr/share/alma-hci/zfs.der
+sudo systemctl reboot
+```
+
+Choose a temporary password when importing. At the machine/VM console,
+select **Enroll MOK**, confirm enrollment using that password, then reboot.
+ZFS loads automatically; confirm with:
+
+```sh
+mokutil --test-key /usr/share/alma-hci/zfs.der
+mokutil --sb-state
+lsmod | grep '^zfs'
+```
+
+Enrollment is once per machine/VM, not per image update. Preserve the VM's
+NVRAM; replacement VMs or reset firmware may need enrollment again.
+Only our ZFS modules use this key, not Alma's kernel or stock modules.
+
 ## Updates
 
 Installed hosts follow the signed `:10` image. Updates do not reboot hosts;
@@ -95,11 +123,13 @@ sudo bootc rollback
 [CI](https://github.com/jrgp/alma-hci/actions/workflows/build.yml) checks
 upstream daily at **08:37 UTC**. Unchanged base, build inputs and installed
 RPMs skip the build and push. Code changes always build and test.
-Publication requires two-boot ZFS/KVM tests with SELinux enforcing, plus
-unsigned-image rejection and signed-image acceptance.
-The private key stays in Actions secret `SIGNING_SECRET`; only
-[`cosign.pub`](cosign.pub) is public. Signatures use legacy Cosign attachments,
-without Rekor transparency-log uploads.
+Publication requires Secure Boot tests rejecting ZFS before enrollment and
+two ZFS/KVM boots after enrollment, with SELinux enforcing. Container-policy
+tests also reject unsigned images and accept signed ones.
+Private keys stay in Actions secrets `SIGNING_SECRET` (containers) and
+`ZFS_MODULE_SIGNING_KEY` (modules); only [`cosign.pub`](cosign.pub) and
+[`zfs-signing.der`](zfs-signing.der) are public. Container signatures use legacy
+Cosign attachments, without Rekor transparency-log uploads.
 
 Watch Actions for failures or disabled schedules: GitHub may disable scheduled
 workflows after 60 days of repository inactivity.
@@ -107,13 +137,17 @@ workflows after 60 days of repository inactivity.
 ## Local development
 
 From a source checkout, run `make image` then `make test`.
-Tests require QEMU/KVM with nested virtualization, OVMF, 3 GiB free RAM and
-8 GiB free disk space. Evidence is written under `output/vm/`.
+Builds require a matching PEM private key and DER certificate, supplied as
+`ZFS_SIGNING_KEY` and `ZFS_SIGNING_CERT`; the project private key is not public.
+CI uses a throwaway key for pull requests, never the production key.
+Tests require QEMU/KVM with nested virtualization, Secure Boot OVMF firmware,
+`virt-fw-vars`, 3 GiB free RAM and 8 GiB free disk space.
+Evidence is written under `output/vm/`.
 
 ## Important limits
 
-The upstream bootc base is experimental. Secure Boot/module signing and
-image upgrade/rollback tests are not implemented.
+The upstream bootc base is experimental. Image upgrade/rollback tests are
+not implemented.
 The default container policy trusts only this project's signed repository;
 add explicit policies for other registries you use.
 Configure production networking with NetworkManager/nmstate, and manage

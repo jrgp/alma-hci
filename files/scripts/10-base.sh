@@ -19,7 +19,9 @@ dnf install -y --setopt=install_weak_deps=False --exclude='kernel*' --exclude=dk
     libvirt-daemon-kvm libvirt-client libvirt-daemon-config-network \
     virt-install qemu-kvm qemu-img edk2-ovmf \
     bash iproute bridge-utils NetworkManager nmstate \
-    openssh-clients openssh-server chrony
+    openssh-clients openssh-server chrony mokutil openssl
+
+install -D -m 0644 /zfs-rpms/zfs.der /usr/share/alma-hci/zfs.der
 
 # cleanup.sh discards /var. Recreate the RPM-owned libvirt directories at
 # boot with their original permissions and the policy's SELinux labels.

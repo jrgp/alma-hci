@@ -5,6 +5,8 @@ IMAGE_REPOSITORY ?= jrgp/alma-hci
 IMAGE_REGISTRY ?= ghcr.io
 CONTAINER_FILE ?= ./Dockerfile
 INSTALL_TARGET_IMAGE ?= ghcr.io/jrgp/alma-hci:10
+ZFS_SIGNING_KEY ?= $(HOME)/.local/share/alma-hci-signing/zfs.key
+ZFS_SIGNING_CERT ?= $(CURDIR)/zfs-signing.der
 
 .DEFAULT_GOAL := image
 .ONESHELL:
@@ -12,7 +14,13 @@ INSTALL_TARGET_IMAGE ?= ghcr.io/jrgp/alma-hci:10
 .PHONY: image test test-image test-vm
 
 image:
+	test -r "$(ZFS_SIGNING_KEY)"
+	test -r "$(ZFS_SIGNING_CERT)"
+	cert_sha256=$$(sha256sum "$(ZFS_SIGNING_CERT)" | cut -d ' ' -f 1)
 	$(PODMAN) build \
+		--secret=id=zfs_signing_key,src="$(ZFS_SIGNING_KEY)" \
+		--secret=id=zfs_signing_cert,src="$(ZFS_SIGNING_CERT)" \
+		--build-arg ZFS_SIGNING_CERT_SHA256="$$cert_sha256" \
 		--security-opt=label=disable \
 		--cap-add=all \
 		--device /dev/fuse \
@@ -28,6 +36,7 @@ image:
 test-image:
 	$(PODMAN) run --rm \
 		-v "$(CURDIR)/tests/check-image.sh:/check-image.sh:ro,Z" \
+		-v "$(ZFS_SIGNING_CERT):/expected-zfs.der:ro,Z" \
 		$(IMAGE_NAME) bash /check-image.sh
 
 test-vm:
