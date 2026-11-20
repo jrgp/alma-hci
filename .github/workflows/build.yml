@@ -110,6 +110,7 @@ jobs:
         run: |
           make test IMAGE_NAME="$LOCAL_IMAGE"
           sudo podman run --rm "$LOCAL_IMAGE" cat /usr/share/alma-server/packages.txt > output/packages.txt
+          sudo podman run --rm "$LOCAL_IMAGE" cat /usr/share/alma-server/kmod-build.txt > output/kmod-build.txt
       - name: Registry login
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
@@ -147,6 +148,7 @@ jobs:
             output/vm/*.log
             output/vm/result.json
             output/packages.txt
+            output/kmod-build.txt
             output/published.json
             output/signature.json
             output/unsigned-rejection.log

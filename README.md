@@ -87,6 +87,7 @@ does not reset an existing file's contents.
 ```sh
 (
 set -eu
+umask 077
 mkdir -p output
 test ! -e output/alma-hci.img
 truncate -s 20G output/alma-hci.img
@@ -168,6 +169,8 @@ CI uploads non-secret logs, exact tested/published digests, signature evidence,
 and package inventory as a 14-day Actions artifact. Private keys and VM disks
 are excluded. Enable Actions failure notifications/watch the repository so a
 failed daily build does not leave hosts silently behind.
+GitHub can disable public scheduled workflows after 60 days of repository
+inactivity; monitor the schedule and re-enable it if necessary.
 
 ## Build and test locally
 

@@ -73,20 +73,20 @@ if [[ "$stage" == first ]]; then
 </domain>
 EOF
     virsh -c qemu:///system create /var/tmp/nested-smoke.xml
-    virsh -c qemu:///system domstate alma-nested-smoke | grep -qx running
+    virsh -c qemu:///system domstate alma-nested-smoke | grep -x running
     virsh -c qemu:///system qemu-monitor-command alma-nested-smoke \
         '{"execute":"query-kvm"}' | jq -e '.return.enabled and .return.present'
     virsh -c qemu:///system destroy alma-nested-smoke
 else
     # The normal ZFS services must import and mount this without test assistance.
     systemctl is-active zfs-import-cache.service zfs-mount.service
-    zpool list -H -o health alma-test | grep -qx ONLINE
+    zpool list -H -o health alma-test | grep -x ONLINE
     [[ "$(findmnt -no FSTYPE /var/lib/alma-zfs-test/data)" == zfs ]]
     sha256sum -c /var/tmp/zfs-payload.sha256
     zfs list -t snapshot alma-test/data@before-reboot
     zpool scrub alma-test
     zpool wait -t scrub alma-test
-    zpool status -x alma-test | grep -q 'is healthy'
+    zpool status -x alma-test | grep 'is healthy'
     if journalctl -k -b --no-pager | grep -Ei '(zfs|spl):.*(unknown symbol|disagrees about version)'; then
         echo "ZFS module compatibility errors in the kernel log" >&2
         exit 1
