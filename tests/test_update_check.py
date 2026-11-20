@@ -14,7 +14,7 @@ class UpdateCheckTests(unittest.TestCase):
     def check(self, rpm_status=0, changed_source=False, changed_base=False):
         tree = subprocess.check_output(
             ["git", "ls-tree", "-r", "HEAD", "--", "Dockerfile", ".containerignore",
-             "files", "ci", "tests", "cosign.pub", "bootc.pub",
+             "files", "ci", "tests", "cosign.pub", "bootc.pub", "zfs-signing.der",
              ".github/workflows/build.yml"], cwd=ROOT,
         )
         source_hash = hashlib.sha256(tree).hexdigest()
