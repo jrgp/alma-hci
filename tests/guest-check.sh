@@ -24,6 +24,15 @@ if [[ "$stage" == untrusted ]]; then
 fi
 mokutil --test-key /usr/share/alma-hci/zfs.der
 systemctl is-active NetworkManager.service sshd.service
+for unit in docker.service docker.socket containerd.service nfs-server.service \
+    nfs-client.target rpcbind.service rpcbind.socket; do
+    [[ "$(systemctl is-enabled "$unit")" == disabled ]]
+    if systemctl is-active --quiet "$unit"; then
+        echo "$unit must not start by default" >&2
+        exit 1
+    fi
+done
+[[ -z "$(wg show interfaces)" ]]
 ip -brief address
 brctl show
 nmcli general status
@@ -53,6 +62,41 @@ grep -q "domain type='kvm'" /var/tmp/libvirt-capabilities.xml
 virsh -c qemu:///system net-info default | grep -E 'Active:.*yes'
 
 if [[ "$stage" == first ]]; then
+    systemctl start docker.service
+    docker info --format '{{.ServerVersion}}'
+    rootfs="$(mktemp -d /var/tmp/alma-docker.XXXXXX)"
+    mkdir "$rootfs/lib64"
+    cp -L /usr/bin/true "$rootfs/true"
+    cp -L /lib64/libc.so.6 /lib64/ld-linux-x86-64.so.2 "$rootfs/lib64/"
+    tar -C "$rootfs" -cf - . | docker image import - alma-hci-smoke:local
+    docker run --rm --network none alma-hci-smoke:local /true
+    docker image rm alma-hci-smoke:local
+    rm "$rootfs/true" "$rootfs/lib64/libc.so.6" "$rootfs/lib64/ld-linux-x86-64.so.2"
+    rmdir "$rootfs/lib64" "$rootfs"
+    systemctl stop docker.service docker.socket containerd.service
+
+    systemctl start nfs-server.service
+    systemctl is-active nfs-server.service
+    (( $(cat /proc/fs/nfsd/threads) > 0 ))
+    exportfs -v
+    systemctl stop nfs-server.service nfs-mountd.service nfs-idmapd.service \
+        nfsdcld.service rpc-statd.service rpc-statd-notify.service \
+        rpcbind.socket rpcbind.service
+
+    (
+        umask 077
+        {
+            printf '[Interface]\nPrivateKey = '
+            wg genkey
+            printf 'Address = 192.0.2.1/32\n'
+        } > /var/tmp/alma-wg-test.conf
+    )
+    wg-quick up /var/tmp/alma-wg-test.conf
+    wg show alma-wg-test
+    ip -brief address show alma-wg-test | grep '192.0.2.1/32'
+    wg-quick down /var/tmp/alma-wg-test.conf
+    rm /var/tmp/alma-wg-test.conf
+
     # Only the dedicated, labelled virtio test disk is ever handed to zpool.
     test_disk=/dev/disk/by-id/virtio-alma-zfs-test
     test -b "$test_disk"

@@ -9,6 +9,7 @@ dnf install -y dnf-plugins-core epel-release \
     https://zfsonlinux.org/epel/zfs-release-3-0.el10.noarch.rpm
 dnf config-manager --set-disabled 'zfs*'
 dnf config-manager --set-enabled zfs-latest-kmod
+dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 
 # The kernel and its initramfs come from the verified bootc base. Upgrade
 # userspace here, but never mix in a different kernel from the RPM mirrors.
@@ -19,7 +20,9 @@ dnf install -y --setopt=install_weak_deps=False --exclude='kernel*' --exclude=dk
     libvirt-daemon-kvm libvirt-client libvirt-daemon-config-network \
     virt-install qemu-kvm qemu-img edk2-ovmf \
     bash iproute bridge-utils NetworkManager nmstate \
-    openssh-clients openssh-server chrony mokutil openssl
+    openssh-clients openssh-server chrony mokutil openssl \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+    nfs-utils rpcbind wireguard-tools
 
 install -D -m 0644 /zfs-rpms/zfs.der /usr/share/alma-hci/zfs.der
 
@@ -51,6 +54,9 @@ systemctl enable NetworkManager.service sshd.service chronyd.service \
     virtnodedevd.socket virtnwfilterd.socket virtsecretd.socket \
     virtlogd.socket virtlockd.socket virtproxyd.socket \
     zfs.target zfs-import-cache.service zfs-mount.service zfs-zed.service
+systemctl disable docker.service docker.socket containerd.service \
+    nfs-server.service nfs-client.target rpcbind.service rpcbind.socket \
+    wg-quick@.service
 
 mkdir -p /usr/share/alma-server
 cp /zfs-rpms/kmod-build.txt /usr/share/alma-server/kmod-build.txt

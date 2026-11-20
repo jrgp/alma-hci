@@ -38,6 +38,14 @@ def wait_ssh(ssh, qemu):
     raise TimeoutError("Guest SSH did not become ready; inspect output/vm/serial.log")
 
 
+def power_transition(ssh, action, log):
+    # Let SSH acknowledge the request before shutdown tears down the connection.
+    run(
+        ssh + [f"systemd-run --on-active=2s --timer-property=AccuracySec=1s systemctl {action}"],
+        stdout=log, stderr=subprocess.STDOUT,
+    )
+
+
 def main():
     if os.geteuid() != 0:
         raise RuntimeError("Run with sudo (the installer uses rootful Podman)")
@@ -159,7 +167,7 @@ def test():
                 with (ROOT / "tests" / "guest-check.sh").open() as script:
                     run(ssh + ["bash -s -- untrusted"], stdin=script, stdout=log,
                         stderr=subprocess.STDOUT, timeout=180)
-                run(ssh + ["systemctl poweroff"], stdout=log, stderr=subprocess.STDOUT)
+                power_transition(ssh, "poweroff", log)
                 qemu.wait(timeout=60)
                 if qemu.returncode != 0:
                     raise RuntimeError(f"Untrusted-key boot exited with {qemu.returncode}")
@@ -178,7 +186,7 @@ def test():
                 old_boot = subprocess.check_output(
                     ssh + ["cat /proc/sys/kernel/random/boot_id"], text=True
                 ).strip()
-                run(ssh + ["systemctl reboot"], stdout=log, stderr=subprocess.STDOUT)
+                power_transition(ssh, "reboot", log)
                 deadline = time.monotonic() + BOOT_TIMEOUT
                 while time.monotonic() < deadline:
                     time.sleep(3)
@@ -193,7 +201,7 @@ def test():
                 with (ROOT / "tests" / "guest-check.sh").open() as script:
                     run(ssh + ["bash -s -- reboot"], stdin=script, stdout=log,
                         stderr=subprocess.STDOUT, timeout=180)
-                run(ssh + ["systemctl poweroff"], stdout=log, stderr=subprocess.STDOUT)
+                power_transition(ssh, "poweroff", log)
                 qemu.wait(timeout=60)
                 if qemu.returncode != 0:
                     raise RuntimeError(f"QEMU exited with {qemu.returncode}")
@@ -211,6 +219,8 @@ def test():
                     "ZFS pool IO, snapshot, clone, export/import, scrub",
                     "ZFS automatic import and data persistence after reboot",
                     "libvirt default NAT network", "nested KVM domain via libvirt",
+                    "Docker and NFS disabled on boot; functional on demand",
+                    "wg-quick creates and removes a working WireGuard interface",
                 ],
             }
             (OUTPUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")

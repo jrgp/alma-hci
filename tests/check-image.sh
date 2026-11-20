@@ -4,7 +4,9 @@ set -euo pipefail
 bootc container lint
 rpm -q bootc kernel-core zfs kmod-zfs libvirt-daemon-kvm libvirt-client \
     qemu-kvm virt-install bash iproute bridge-utils NetworkManager nmstate \
-    openssh-clients openssh-server mokutil openssl
+    openssh-clients openssh-server mokutil openssl \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+    nfs-utils rpcbind wireguard-tools
 cmp /expected-zfs.der /usr/share/alma-hci/zfs.der
 openssl x509 -inform DER -in /usr/share/alma-hci/zfs.der -noout -subject -fingerprint -sha256
 expected_key="$(openssl x509 -inform DER -in /usr/share/alma-hci/zfs.der -noout -serial \
@@ -16,6 +18,11 @@ nmstatectl --version
 bash --version
 ssh -V
 sshd -V
+docker --version
+docker compose version
+docker buildx version
+wg --version
+command -v wg-quick exportfs rpc.nfsd
 if rpm -qa --qf '%{NAME}\n' | grep -Ex 'dkms|zfs-dkms|gdm|sddm|gnome-shell|plasma-desktop|xorg-x11-server-Xorg'; then
     echo "DKMS or a desktop was installed" >&2
     exit 1
@@ -26,6 +33,11 @@ systemctl is-enabled virtqemud.service virtnetworkd.service \
     virtstoraged.service virtqemud.socket virtproxyd.socket \
     zfs.target zfs-import-cache.service zfs-mount.service zfs-zed.service \
     NetworkManager.service sshd.service
+for unit in docker.service docker.socket containerd.service nfs-server.service \
+    nfs-client.target rpcbind.service rpcbind.socket wg-quick@.service; do
+    [[ "$(systemctl is-enabled "$unit")" == disabled ]]
+done
+dnf repolist --enabled | grep -E '^docker-ce-stable[[:space:]]'
 dnf repolist --enabled | grep -E '^zfs-latest-kmod[[:space:]]'
 if dnf repolist --enabled | grep -E '^zfs[[:space:]]'; then
     echo "The DKMS repository is enabled" >&2
@@ -38,6 +50,8 @@ for kernel in /usr/lib/modules/*/vmlinuz; do
     modprobe --set-version "$kver" --show-depends zfs
     modprobe --set-version "$kver" --show-depends kvm_amd
     modprobe --set-version "$kver" --show-depends kvm_intel
+    modinfo -k "$kver" -F filename wireguard
+    modinfo -k "$kver" -F filename nfsd
 done
 modules=0
 while IFS= read -r module; do

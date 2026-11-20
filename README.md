@@ -6,7 +6,8 @@ Headless AlmaLinux 10 bootc server: **`ghcr.io/jrgp/alma-hci:10`**
 
 Includes libvirt/KVM, QEMU, OVMF, `virsh`, `virt-install`, OpenZFS, Bash,
 `ip`/`bridge`, `brctl`, NetworkManager/`nmcli`, `nmstatectl`, SSH/sshd,
-chrony and SELinux. ZFS kmods are built for the bundled kernel during the
+Docker CE/Compose/Buildx, NFS server tools, WireGuard/`wg-quick`, chrony and
+SELinux. ZFS kmods are built for the bundled kernel during the
 image build: **no DKMS or compiler on installed hosts**.
 The OS uses XFS; keep ZFS data and VM storage under `/var`.
 
@@ -107,6 +108,20 @@ lsmod | grep '^zfs'
 Enrollment is once per machine/VM, not per image update. Preserve the VM's
 NVRAM; replacement VMs or reset firmware may need enrollment again.
 Only our ZFS modules use this key, not Alma's kernel or stock modules.
+
+## Optional services
+
+Docker CE comes from Docker's official RPM repository. Docker, containerd,
+NFS and RPC activation are **disabled by default**; WireGuard has no configured
+tunnels. Enable only what you need:
+
+```sh
+sudo systemctl enable --now docker
+# Configure /etc/exports before starting an NFS server:
+sudo systemctl enable --now nfs-server
+```
+
+Docker does not enforce the Podman/bootc container-signature policy.
 
 ## Updates
 

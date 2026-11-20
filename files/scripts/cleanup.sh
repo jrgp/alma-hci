@@ -10,7 +10,7 @@ shopt -s extglob
 
 dnf clean all
 
-rm -rf /run/selinux-policy
+rm -rf /run/selinux-policy /run/mdadm
 rm -rf /.gitkeep /var /boot
 mkdir -p /boot /var
 
