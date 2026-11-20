@@ -24,17 +24,20 @@ def run(args, **kwargs):
     return subprocess.run([str(arg) for arg in args], check=True, **kwargs)
 
 
-def wait_ssh(ssh, qemu):
+def wait_ssh(ssh, qemu, previous_boot=None):
     deadline = time.monotonic() + BOOT_TIMEOUT
     while time.monotonic() < deadline:
         if qemu.poll() is not None:
             raise RuntimeError("QEMU exited; inspect output/vm/serial.log")
         result = subprocess.run(
-            ssh + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ssh + ["cat /proc/sys/kernel/random/boot_id"],
+            capture_output=True, text=True,
         )
-        if result.returncode == 0:
+        if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != previous_boot:
             return
         time.sleep(2)
+    if previous_boot is not None:
+        raise TimeoutError("Guest never rebooted; inspect output/vm/serial.log")
     raise TimeoutError("Guest SSH did not become ready; inspect output/vm/serial.log")
 
 
@@ -187,17 +190,7 @@ def test():
                     ssh + ["cat /proc/sys/kernel/random/boot_id"], text=True
                 ).strip()
                 power_transition(ssh, "reboot", log)
-                deadline = time.monotonic() + BOOT_TIMEOUT
-                while time.monotonic() < deadline:
-                    time.sleep(3)
-                    wait_ssh(ssh, qemu)
-                    new_boot = subprocess.check_output(
-                        ssh + ["cat /proc/sys/kernel/random/boot_id"], text=True
-                    ).strip()
-                    if new_boot != old_boot:
-                        break
-                else:
-                    raise TimeoutError("Guest never rebooted")
+                wait_ssh(ssh, qemu, previous_boot=old_boot)
                 with (ROOT / "tests" / "guest-check.sh").open() as script:
                     run(ssh + ["bash -s -- reboot"], stdin=script, stdout=log,
                         stderr=subprocess.STDOUT, timeout=180)
