@@ -1,3 +1,5 @@
 cosign.key
 output/
 __pycache__/
+*.swp
+*.swo
