@@ -55,6 +55,7 @@ for kernel in /usr/lib/modules/*/vmlinuz; do
 done
 modules=0
 while IFS= read -r module; do
+    [[ "$(modinfo -F vermagic "$module")" == "$kver "* ]]
     [[ -n "$(modinfo -F signer "$module")" ]]
     [[ "$(modinfo -F sig_key "$module" | tr -d : | tr '[:lower:]' '[:upper:]')" == "$expected_key" ]]
     [[ "$(modinfo -F sig_hashalgo "$module")" == sha256 ]]

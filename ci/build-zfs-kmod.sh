@@ -19,7 +19,8 @@ mkdir -p /source /rpms
 dnf --enablerepo=zfs-latest-source download --source --destdir=/source zfs-kmod
 rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-openzfs-el-10
 rpmkeys --checksig /source/*.src.rpm
-dnf builddep -y /source/*.src.rpm
+dnf builddep -y --exclude='kernel*' /source/*.src.rpm
+[[ "$(rpm -q kernel-devel --qf '%{VERSION}-%{RELEASE}.%{ARCH}')" == "$kver" ]]
 # OpenZFS's RPM hook signs after stripping/debug extraction. Keep the private
 # key on its secret mount, never in the build context or a cached layer.
 mkdir -p "/usr/src/kernels/${kver}/certs"
