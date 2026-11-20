@@ -1,0 +1,7 @@
+.git
+.github
+output
+tests
+README.md
+Makefile
+*.key

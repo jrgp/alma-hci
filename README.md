@@ -1,198 +1,241 @@
-# My Atomic AlmaLinux Respin
+# Alma HCI
 
-Welcome to your brand-new Atomic AlmaLinux Respin!
+Headless x86_64 AlmaLinux 10 bootc server images:
+**`ghcr.io/jrgp/alma-hci:10`** (`latest` is an alias).
+Derived from the [AlmaLinux atomic respin template](https://github.com/AlmaLinux/atomic-respin-template)
+using the official `almalinux-bootc` server base, not a desktop.
+There are no ISO builds.
 
-## Initial Setup
+Included: libvirt's modular daemons, QEMU/KVM, OVMF, `virsh`, `virt-install`,
+OpenZFS `kmod-zfs` (never DKMS), Bash, `ip`/`bridge`, `brctl`,
+NetworkManager/`nmcli`, `nmstatectl`, SSH client/server, chrony, and SELinux.
+The nmstate command is **`nmstatectl`**, not `nmstatecli`.
+`brctl` is included for compatibility; prefer NetworkManager or `bridge` for
+new configurations.
 
-### Set basic configuration
+The OS boots on **XFS**; ZFS is for data pools under `/var`, not root-on-ZFS.
+The image enables `multi-user.target`, NetworkManager, SSH, libvirt and cached
+ZFS pool import/mount services. It contains no built-in credentials.
+The AlmaLinux bootc base is still experimental upstream.
 
-In the ["config"](.github/actions/config/action.yml) action, you'll find a job where you can configure several key variables:
+ZFS kmods are compiled **during the image build** from signature-verified
+official OpenZFS source RPMs into a kmod RPM for the exact bundled kernel.
+No compiler, kernel-devel or DKMS is needed on installed hosts. This avoids
+depending on the binary kmod repository catching up with a new Alma minor
+release. Source/RPM checksums and the kernel version are recorded at
+`/usr/share/alma-server/kmod-build.txt`; userspace uses `zfs-latest-kmod`.
 
-- `REGISTRY`: The container registry to push your image to (default: GitHub Container Registry `ghcr.io`).
-- `REGISTRY_USER`: Your username for the registry.
-- `IMAGE_PATH`: The path/namespace for your image.
-- `IMAGE_NAME`: The name of your image.
-- `PLATFORMS`: A quoted, comma-separated list of platforms to build for (e.g., `"amd64,arm64"`).
+## Install directly from GHCR
 
-If your registry is not GitHub or you need a specific token, search for `REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}`
-in the workflow files and replace it with the appropriate secret.
+Use an x86_64 Linux installer/rescue environment with rootful Podman, skopeo,
+Cosign, and loop-device support. Fedora's packages include Podman and skopeo;
+install Cosign from its [official releases](https://github.com/sigstore/cosign/releases).
+Clone this repository to obtain the trusted `cosign.pub`.
+Never run an unverified image privileged.
 
-### Pick a base desktop image
-
-By default, this template uses the base image `quay.io/almalinuxorg/atomic-desktop-gnome:10`, maintained by the
-[AlmaLinux Atomic SIG](https://wiki.almalinux.org/sigs/Atomic.html). If you prefer KDE, you can use
-`quay.io/almalinuxorg/atomic-desktop-kde:10` instead.
-
-To switch images, change the `FROM` line in the [Dockerfile](Dockerfile). If your image use a different
-signing key, download the new Cosign public key and specify its name in the `upstream-public-key`
-parameter in `.github/workflows/build.yml`, or remove the parameter to disable key verification.
-
-### Set up container signing (Optional, highly recommended)
-
-Container signing is important for end-user security and is fully supported by
-the CI. By default, the CI will check the signature of your base image to make
-sure it hasn't been tampered with. You can also sign your own image to give
-your users the same security guarantees.
-
-If you'd like to sign your images using Cosign:
-
-1. Generate a cosign key:
-   ```sh
-   podman run --rm -it -v /tmp:/cosign-keys bitnami/cosign generate-key-pair
-   ```
-   Leave the password blank. The keys will be in `/tmp/cosign.{key,pub}`.
-2. Add `cosign.pub` to the repository as `/cosign.pub`, commit, and push. This file is public and
-   needed for signature verification. **NEVER** commit your `cosign.key` to the repo!!
-3. In GitHub repo settings, go to "Secrets and variables" > "Actions". Create a secret called
-   `SIGNING_SECRET` and paste the contents of `cosign.key`. Store `cosign.key` securely and delete
-   it from `/tmp`. You can also do this via the GitHub CLI:
-   ```bash
-   gh secret set SIGNING_SECRET < cosign.key
-   ```
-
-### Set up Cloudflare R2 for ISO storage
-
-By default, the CI uploads built ISO images as GitHub Artifacts. These can be large, and artifact storage is limited, so you may want to upload ISOs to Cloudflare R2 (free tier).
-
-Follow these steps:
-
-1. **Sign up for [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/)** and create a new bucket. Use any name and location; the free tier only supports the Standard storage class.
-2. **Create an API token** with "Object Read & Write" permissions, limited to your new bucket. Save the Access Key ID and Secret Access Key.
-3. **Add the following repository secrets in GitHub:**
-   - `R2_ACCOUNT_ID`: Your Cloudflare account ID (found in the dashboard URL: `https://dash.cloudflare.com/<R2_ACCOUNT_ID>/home`)
-   - `R2_ACCESS_KEY_ID`: The Access Key ID from your API token
-   - `R2_SECRET_ACCESS_KEY`: The Secret Access Key from your API token
-   - `R2_BUCKET`: Your bucket name
-4. **Update your workflow:**
-   In the `build-iso` job of [`build-iso.yml`](/.github/workflows/build-iso.yml), uncomment the secret definitions for these secrets and set `upload-to-cloudflare: true` in the workflow inputs:
-   ```yaml
-   upload-to-cloudflare: true
-   ```
-5. **Enable public access (optional):**
-   In the Cloudflare dashboard, select your R2 bucket and enable the "Public Development URL" if you want to share ISOs publicly. This gives you a URL prefix for downloads.
-
-## Customizing your respin
-
-Now you're ready to make your respin your own!
-
-### Adding files
-
-Place any files you want to include in your image in [`/files/system/`](files/system/). The
-directory structure and permissions will be preserved. This is ideal for adding themes,
-backgrounds, configuration files, etc.
-
-### Executing commands
-
-Scripts in [`/files/scripts/`](files/scripts/) are run during image creation. The `build.sh`
-script copies files from `/files/system/` into the image, then runs all scripts in order,
-and finally runs `cleanup.sh`.
-
-- Start by editing [`10-base.sh`](files/scripts/10-base.sh) to suit your needs.
-- Add more scripts as needed, using the naming scheme `XX-whatever.sh` (where `XX` is a number).
-- Do **not** modify `build.sh`, `cleanup.sh`, `90-signing.sh`, or `91-image-info.sh` unless you know what you're doing.
-
-### Build your new image
-
-After adding your files and scripts, commit your changes. The CI will build a new image
-for you automatically. You can also build locally:
+Resolve and verify an immutable image before either installation example:
 
 ```sh
+REPOSITORY=ghcr.io/jrgp/alma-hci
+DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://$REPOSITORY:10")
+IMAGE="$REPOSITORY@$DIGEST"
+cosign verify --insecure-ignore-tlog=true --key ./cosign.pub "$IMAGE"
+sudo podman pull "$IMAGE"
+```
+
+Signatures are verified directly against this project's public key; the
+project does not upload its signatures to the public Rekor transparency log.
+Cosign verification does not enable firmware Secure Boot.
+
+GHCR packages initially default to private, independently of repository
+visibility. If an anonymous pull is denied, the package owner can make it
+public at [package settings](https://github.com/users/jrgp/packages/container/alma-hci/settings).
+For a private package, authenticate Podman, skopeo and Cosign first using a
+token with `read:packages`; provision registry credentials on the installed
+host in `/etc/ostree/auth.json` for future bootc updates as well. Do not use
+the short-lived CI `GITHUB_TOKEN` as a server's long-term credential.
+
+### A physical block device
+
+**DESTRUCTIVE: this erases the entire selected disk.** Boot a separate
+installer environment, inspect `lsblk`, and replace the example by-id path
+with the intended unused target. Do not target the running system's disk.
+The SSH public key file must already exist; its private key stays with you.
+
+```sh
+sudo podman run --rm --privileged --pid=host \
+  --security-opt=label=disable \
+  -v /var/lib/containers/storage:/var/lib/containers/storage \
+  -v /dev:/dev \
+  -v "$HOME/.ssh/id_ed25519.pub:/run/admin.pub:ro" \
+  "$IMAGE" bootc install to-disk --wipe \
+  --target-imgref=ghcr.io/jrgp/alma-hci:10 \
+  --enforce-container-sigpolicy \
+  --root-ssh-authorized-keys=/run/admin.pub \
+  /dev/disk/by-id/REPLACE-WITH-YOUR-TARGET-DISK
+```
+
+The installed system follows the moving, signature-enforced `:10` reference,
+even though installation uses the exact digest verified above.
+
+### A raw .img file for a VM
+
+The following creates a sparse disk file, never targets a physical disk, and
+installs both bootloaders for a generic VM image. Use a new filename; `truncate`
+does not reset an existing file's contents.
+
+```sh
+mkdir -p output
+test ! -e output/alma-hci.img
+truncate -s 20G output/alma-hci.img
+sudo podman run --rm --privileged --pid=host \
+  --security-opt=label=disable \
+  -v /var/lib/containers/storage:/var/lib/containers/storage \
+  -v /dev:/dev \
+  -v "$PWD/output:/output" \
+  -v "$HOME/.ssh/id_ed25519.pub:/run/admin.pub:ro" \
+  "$IMAGE" bootc install to-disk --via-loopback --generic-image \
+  --karg=console=ttyS0,115200n8 \
+  --target-imgref=ghcr.io/jrgp/alma-hci:10 \
+  --enforce-container-sigpolicy \
+  --root-ssh-authorized-keys=/run/admin.pub \
+  /output/alma-hci.img
+```
+
+For example, attach the result as a raw virtio disk in libvirt/virt-install:
+
+```sh
+sudo virt-install --name alma-hci-test --memory 4096 --vcpus 2 \
+  --import --os-variant almalinux10 --boot uefi --graphics none \
+  --disk "path=$PWD/output/alma-hci.img,format=raw,bus=virtio" \
+  --network network=default --noautoconsole
+```
+
+## Daily builds, signing, and change detection
+
+[GitHub Actions](https://github.com/jrgp/alma-hci/actions/workflows/build.yml)
+checks daily at **08:37 UTC**, on non-documentation pushes to `main`, and on
+manual dispatch. Scheduled jobs can be delayed by GitHub. A lightweight check
+must run to discover upstream changes; GitHub cannot skip the whole scheduled
+workflow based on external RPM/registry state.
+
+The check verifies AlmaLinux's signature on the current upstream `:10` digest.
+It compares that digest and a hash of the build inputs/tests with the last
+signed published image. If those match, it refreshes RPM metadata in the last
+image and checks for installed userspace package updates. When nothing changed,
+**the build/VM/publish job is skipped and no new images are pushed**.
+Network, authentication, and RPM repository failures fail the check rather
+than being reported as "no changes".
+
+On changes, CI pins the resolved upstream digest for that build, upgrades
+userspace, and runs the image checks and two-boot KVM/ZFS test suite. Kernels
+and their initramfs come only from the upstream bootc base, never a separate
+DNF kernel upgrade. A new EL minor release can break ZFS kABI compatibility;
+a failing source/module build or boot test leaves stable tags on the previous
+image. Third-party prebuilt kmods may lag a new kernel ABI, which is why this
+project builds its kmod RPM for the actual base kernel instead.
+
+Only trusted `main` builds publish. CI pushes a unique candidate, demonstrates
+that the installed image's containers/image policy **rejects it unsigned**,
+signs the exact digest, then demonstrates that the same policy **accepts it**.
+Only after those checks do `:10` and `:latest` advance. The immutable
+`build-RUN_ID-ATTEMPT` candidate tag is retained as a version reference.
+Pull requests never receive the signing secret or publish images.
+
+The private key is the encrypted GitHub Actions repository secret
+**`SIGNING_SECRET`**. Only `cosign.pub` is in Git/the image. Signing uses
+Cosign 2.6.5's legacy `.sig` attachment because that is the format consumed by
+bootc's containers/image verification. The workflow verifies this format, not
+just Cosign's own success.
+
+To recheck manually, or force recovery/initial publication:
+
+```sh
+gh workflow run build.yml --repo jrgp/alma-hci
+gh workflow run build.yml --repo jrgp/alma-hci -f force=true
+```
+
+CI uploads non-secret logs, exact tested/published digests, signature evidence,
+and package inventory as a 14-day Actions artifact. Private keys and VM disks
+are excluded. Enable Actions failure notifications/watch the repository so a
+failed daily build does not leave hosts silently behind.
+
+## Build and test locally
+
+```sh
+sudo dnf install podman skopeo make python3 qemu-kvm qemu-img edk2-ovmf openssh-clients
 make image
+make test
 ```
 
-#### Local development with Makefile
+The default local image is `localhost/alma-hci:10`, in rootful Podman storage.
+Its update/signature policy still targets `ghcr.io/jrgp/alma-hci:10`.
+For another local tag, pass `IMAGE_NAME=localhost/example:10` to each target.
+The Dockerfile has a reproducible fallback base digest; CI overrides it with
+the current signature-verified major-version tag resolved to a digest.
+`BASE_IMAGE=...@sha256:...` can override the base for a local build too.
 
-The provided `Makefile` includes several useful commands for local development and testing:
+`make test-image` checks bootc lint, packages/tools, enabled services, lack
+of a desktop/DKMS, repository choice and module resolution.
+`make test-vm` installs into a generated sparse raw disk with the signed update
+policy enforced. It checks UEFI boot, immutable `/usr`, SELinux enforcing,
+NetworkManager, libvirt NAT, automatic ZFS loading, real pool IO,
+snapshots/clones/export/import, nested KVM through libvirt, then reboots and
+checks automatic pool import/mount, persistent data, and a scrub.
 
-- `make image`: Build the container image using Podman.
-- `make clean`: Remove the `./output` directory and build artifacts.
-- `make iso`: Build a live ISO with an installer for your image, using [image-builder](https://github.com/osbuild/image-builder).
-- `make qcow2`: Build a QCOW2 disk image using image-builder.
-- `make run-qemu-iso`: Boot the generated ISO in QEMU for testing. Creates a virtual disk if needed.
-- `make run-qemu-qcow`: Boot the generated QCOW2 disk image in QEMU for testing.
-- `make run-qemu`: Boot the raw disk image in QEMU (after installation).
-
-> **Note:** You may need `sudo` privileges and Podman installed. For more details, see
->  the `Makefile`. QEMU is only optionally needed for local testing.
-
-## Using your image with bootc
-
-Your respin is designed to work with [bootc](https://github.com/containers/bootc), a tool for
-managing and updating container-based operating system images. Here are some basics to get you started:
-
-### Installing your image
-
-Build or download the ISO for your image and boot into it. It starts a live session of your image, where you can
-try it out before installing it with the installer. The image is included in the ISO, so the installation doesn't
-need a network connection.
-
-### Switching from another image
-
-> [!CAUTION]
-> This is entirely unsupported and may not work at all. In fact, it probably doesn't
-> work at all and it's a terrible idea to even try. Don't do this.
-
-If you're already running a bootc image and wish to change to this one, you may be able to do
-this via `bootc switch`. As you won't have the correct signing key or configuration, you'll
-have to disable it first:
+The VM test requires `/dev/kvm`, nested virtualization, OVMF, 3 GiB free RAM,
+and at least 8 GiB free disk space. Software emulation is not a substitute.
+It never loads AlmaLinux kernel modules into the host. It replaces only its
+own dedicated test disks. QEMU is stopped on exit. Root-only test artifacts
+are retained under ignored `output/vm/`:
 
 ```sh
-sudo cp /etc/containers/policy.json /etc/containers/policy.json.old
-sudo echo '{"default": [{"type": "insecureAcceptAnything"}]}' > /etc/containers/policy.json
-sudo bootc switch --transport registry <REGISTRY>/<IMAGE_PATH>/<IMAGE_NAME>:latest
+sudo cat output/vm/result.json
+sudo tail -100 output/vm/checks.log
 ```
 
-(fill in `<REGISTRY>/<IMAGE_PATH>/<IMAGE_NAME>` with your actual bootc image location)
-
-After this, reboot into your new image. Now we can fix it to enforce key verification
-with the new image's `policy.json`:
+Change-detection tests use only the Python standard library:
 
 ```sh
-sudo cp /usr//etc/containers/policy.json /etc/containers/policy.json
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Now your image should be able to update itself correctly. Or not at all. Remember,
-this is entirely unsupported!!
-
-### Upgrading your system
-
-Once installed, your system will automatically check for updates in the background using a
-systemd unit provided by bootc. You can also manually trigger an upgrade:
+## Operate the server
 
 ```sh
+sudo bootc status
 sudo bootc upgrade
+# Reboot in a maintenance window after shutting down/migrating guests.
+sudo systemctl reboot
+# If needed:
+sudo bootc rollback
 ```
 
-This will pull the latest image and prepare it for the next boot. On reboot, the system
-will run the new image version.
+Publishing images does not update or reboot an installed host. Arrange staged
+rollouts, maintenance-window reboots, canaries and stale-host monitoring for
+your fleet. Do not enable unattended rebooting of active virtualization hosts.
+The tests do not yet certify image upgrade/rollback or physical hardware.
 
-### Checking status and troubleshooting
+Use `sudo virsh -c qemu:///system` locally or `qemu+ssh://USER@HOST/system`
+remotely. No unauthenticated libvirt TCP listener is enabled. Configure
+production bridges with NetworkManager/nmstate; the packaged default libvirt
+network is NAT.
 
-- To see the current image and status:
-  ```sh
-  bootc status
-  ```
-- To roll back to the previous image after an upgrade:
-  ```sh
-  sudo bootc rollback
-  ```
+Create ZFS data pools on explicitly selected unused disks with persistent
+mountpoints and a cache file:
 
-## Continuous Integration (CI)
+```sh
+# DESTRUCTIVE example: replace the disk with your intended unused data disk.
+sudo zpool create -o ashift=12 -o cachefile=/etc/zfs/zpool.cache \
+  -O compression=lz4 -O mountpoint=/var/lib/tank tank /dev/disk/by-id/YOUR-DATA-DISK
+```
 
-This template is set up with GitHub Actions workflows to build, test, and (optionally)
-sign your images automatically on every push or pull request. See the `.github/workflows/`
-directory for details.
+Keep VM storage under `/var`, preserve SELinux labels, and configure
+redundancy, backups, encryption and scrubs to suit your storage. The respin
+recreates libvirt's RPM-owned `/var` directories with correct permissions and
+SELinux labels and orders ZFS mounts after bootc's writable `/var` setup.
 
-## Troubleshooting
-
-- **Build fails locally:** Ensure you have Podman and QEMU installed, and that you have the necessary permissions (try running with `sudo`).
-- **CI build fails:** Check the Actions tab in GitHub for logs. Make sure your secrets and configuration are correct.
-- **Image doesn't boot in QEMU:** Double-check your custom scripts and added files for errors, check the build logs for errors.
-
-## Resources
-
-- [AlmaLinux Atomic SIG](https://wiki.almalinux.org/sigs/Atomic.html)
-- [AlmaLinux Atomic Desktop Images](https://github.com/AlmaLinux/atomic-desktop)
-- [bootc documentation](https://github.com/containers/bootc)
-- [Podman documentation](https://podman.io/)
-- [QEMU documentation](https://www.qemu.org/)
+**Secure Boot is separate from image signing.** OpenZFS kmods are third-party
+modules; this project has not implemented module signing/key enrollment or
+tested Secure Boot. Do not assume the signed container makes them trusted by
+firmware/the kernel.

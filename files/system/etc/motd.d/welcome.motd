@@ -1,1 +1,4 @@
-Welcome to my OS!
+AlmaLinux Atomic Server - libvirt/KVM and OpenZFS (prebuilt kmods)
+
+Manage the OS with bootc; package changes belong in the container build.
+ZFS is for data pools, not the boot filesystem.

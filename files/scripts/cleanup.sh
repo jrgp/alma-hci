@@ -10,6 +10,7 @@ shopt -s extglob
 
 dnf clean all
 
+rm -rf /run/selinux-policy
 rm -rf /.gitkeep /var /boot
 mkdir -p /boot /var
 
@@ -17,4 +18,6 @@ mkdir -p /boot /var
 if [[ ! -L /usr/local ]]; then
     mv /usr/local /var/usrlocal
     ln -s /var/usrlocal /usr/local
+    find /var/usrlocal -type d -printf 'd %p %m root root -\n' \
+        > /usr/lib/tmpfiles.d/alma-usrlocal.conf
 fi

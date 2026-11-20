@@ -10,4 +10,4 @@ set -xeuo pipefail
 sed -i '/VARIANT_ID=/d;' /usr/lib/os-release
 
 # Add our image name as VARIANT_ID.
-echo "VARIANT_ID=\"${IMAGE_NAME}\"" >> /usr/lib/os-release
+echo "VARIANT_ID=\"${IMAGE_NAME##*/}\"" >> /usr/lib/os-release
