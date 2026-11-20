@@ -62,7 +62,7 @@ jobs:
       - name: Compare base, source and RPM updates
         id: check
         env:
-          FORCE: ${{ inputs.force == true || github.event.created == true || github.event_name == 'pull_request' }}
+          FORCE: ${{ inputs.force == true || github.event_name == 'push' || github.event_name == 'pull_request' }}
         run: bash ci/check-updates.sh
 
   build:

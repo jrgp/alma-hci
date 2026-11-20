@@ -115,7 +115,9 @@ sudo virt-install --name alma-hci-test --memory 4096 --vcpus 2 \
 
 [GitHub Actions](https://github.com/jrgp/alma-hci/actions/workflows/build.yml)
 checks daily at **08:37 UTC**, on non-documentation pushes to `main`, and on
-manual dispatch. Scheduled jobs can be delayed by GitHub. A lightweight check
+manual dispatch. Code pushes/PRs always build and test; daily and ordinary
+manual runs check whether a rebuild is needed. Scheduled jobs can be delayed
+by GitHub. A lightweight check
 must run to discover upstream changes; GitHub cannot skip the whole scheduled
 workflow based on external RPM/registry state.
 
@@ -141,6 +143,10 @@ signs the exact digest, then demonstrates that the same policy **accepts it**.
 Only after those checks do `:10` and `:latest` advance. The immutable
 `build-RUN_ID-ATTEMPT` candidate tag is retained as a version reference.
 Pull requests never receive the signing secret or publish images.
+
+The default container policy rejects remote repositories other than this
+project. Add explicit verification policies for other container registries
+you intend to use; do not replace the global policy with allow-all.
 
 The private key is the encrypted GitHub Actions repository secret
 **`SIGNING_SECRET`**. Only `cosign.pub` is in Git/the image. Signing uses
