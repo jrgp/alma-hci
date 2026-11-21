@@ -30,7 +30,8 @@ if rpm -qa --qf '%{NAME}\n' | grep -Ex 'dkms|zfs-dkms|gdm|sddm|gnome-shell|plasm
 fi
 [[ "$(systemctl get-default)" == multi-user.target ]]
 [[ "$(cat /usr/lib/modules-load.d/alma-server-zfs.conf)" == zfs ]]
-systemctl is-enabled virtqemud.service virtnetworkd.service \
+systemctl is-enabled bootc-fetch-apply-updates.timer \
+    virtqemud.service virtnetworkd.service \
     virtstoraged.service virtqemud.socket virtproxyd.socket \
     zfs.target zfs-import-cache.service zfs-mount.service zfs-zed.service \
     NetworkManager.service sshd.service

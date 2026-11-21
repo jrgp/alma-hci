@@ -48,7 +48,8 @@ for kernel in /usr/lib/modules/*/vmlinuz; do
 done
 
 systemctl set-default multi-user.target
-systemctl enable NetworkManager.service sshd.service chronyd.service \
+systemctl enable bootc-fetch-apply-updates.timer \
+    NetworkManager.service sshd.service chronyd.service \
     virtqemud.service virtnetworkd.service virtstoraged.service \
     virtqemud.socket virtnetworkd.socket virtstoraged.socket \
     virtnodedevd.socket virtnwfilterd.socket virtsecretd.socket \

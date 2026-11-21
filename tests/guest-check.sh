@@ -7,6 +7,12 @@ stage="${1:?expected untrusted, first or reboot}"
 [[ "$(getenforce)" == Enforcing ]]
 mokutil --sb-state | grep -x 'SecureBoot enabled'
 grep -E '\[(integrity|confidentiality)\]' /sys/kernel/security/lockdown
+[[ "$(systemctl is-enabled bootc-fetch-apply-updates.timer)" == enabled ]]
+systemctl is-active bootc-fetch-apply-updates.timer
+update_command="$(systemctl show bootc-fetch-apply-updates.service -p ExecStart --value)"
+printf '%s\n' "$update_command"
+[[ "$update_command" == *"argv[]=/usr/bin/bootc upgrade --quiet ;"* ]]
+[[ "$update_command" != *"--apply"* ]]
 if [[ "$stage" == untrusted ]]; then
     if mokutil --test-key /usr/share/alma-hci/zfs.der; then
         echo "The negative test already trusts the ZFS certificate" >&2

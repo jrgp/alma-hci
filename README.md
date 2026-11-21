@@ -125,8 +125,9 @@ Docker does not enforce the Podman/bootc container-signature policy.
 
 ## Updates
 
-Installed hosts follow the signed `:10` image. Updates do not reboot hosts;
-shut down or migrate guests before rebooting.
+Installed hosts follow the signed `:10` image. Scheduled updates download and
+stage the new image without rebooting (`bootc upgrade --quiet`). It takes
+effect at the next manual reboot; shut down or migrate guests first.
 
 ```sh
 sudo bootc upgrade
