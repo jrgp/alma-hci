@@ -43,6 +43,7 @@ ip -brief address
 brctl show
 nmcli general status
 git --version
+toolbox --version
 nmstatectl show > /var/tmp/nmstate.yml
 if touch /usr/bootc-write-must-fail; then
     rm /usr/bootc-write-must-fail

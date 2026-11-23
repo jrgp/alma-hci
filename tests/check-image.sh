@@ -3,7 +3,7 @@ set -euo pipefail
 
 bootc container lint
 rpm -q bootc kernel-core zfs kmod-zfs libvirt-daemon-kvm libvirt-client \
-    qemu-kvm virt-install bash git iproute bridge-utils NetworkManager nmstate \
+    qemu-kvm virt-install bash git toolbox iproute bridge-utils NetworkManager nmstate \
     openssh-clients openssh-server mokutil openssl \
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
     nfs-utils rpcbind wireguard-tools
@@ -17,6 +17,9 @@ nmcli --version
 nmstatectl --version
 bash --version
 git --version
+# Toolbox's ELF loader uses /run/host, normally created by tmpfiles at boot.
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/toolbox.conf
+toolbox --version
 ssh -V
 sshd -V
 docker --version
