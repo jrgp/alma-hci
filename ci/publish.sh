@@ -65,6 +65,13 @@ cosign verify --insecure-ignore-tlog=true --key cosign.pub "$reference" \
 skopeo inspect --raw "docker://${IMAGE_REF}:${digest/:/-}.sig" > /dev/null
 verify_with_host_policy > output/signed-acceptance.log 2>&1
 
+# Exercise the exact signed registry digest before any stable tag moves.
+if [[ -n "$previous_reference" ]]; then
+    make test-upgrade UPGRADE_FROM_IMAGE="$previous_reference" UPGRADE_TO_IMAGE="$reference"
+else
+    echo "No previous publication: upgrade test is not applicable to this first release."
+fi
+
 jq -n --arg image "$reference" --arg candidate "$candidate" \
     --arg release_tag "$release_tag" --arg previous "$previous_reference" \
     --arg revision "$GITHUB_SHA" \

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Test Secure Boot rejection, MOK trust and two ZFS/KVM boots."""
+"""Test fresh installs or signed image upgrades with Secure Boot and ZFS."""
 
 import fcntl
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -13,9 +15,11 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "output" / "vm"
-IMAGE = os.environ.get("IMAGE_NAME", "localhost/alma-hci:10")
-INSTALL_TARGET = os.environ.get("INSTALL_TARGET_IMAGE")
+UPGRADE_FROM = os.environ.get("UPGRADE_FROM_IMAGE")
+UPGRADE_TO = os.environ.get("UPGRADE_TO_IMAGE")
+OUTPUT = ROOT / "output" / ("vm-upgrade" if UPGRADE_FROM else "vm")
+IMAGE = UPGRADE_FROM or os.environ.get("IMAGE_NAME", "localhost/alma-hci:10")
+INSTALL_TARGET = UPGRADE_FROM or os.environ.get("INSTALL_TARGET_IMAGE")
 BOOT_TIMEOUT = int(os.environ.get("BOOT_TIMEOUT", "300"))
 
 
@@ -28,7 +32,7 @@ def wait_ssh(ssh, qemu, previous_boot=None):
     deadline = time.monotonic() + BOOT_TIMEOUT
     while time.monotonic() < deadline:
         if qemu.poll() is not None:
-            raise RuntimeError("QEMU exited; inspect output/vm/serial.log")
+            raise RuntimeError(f"QEMU exited; inspect {OUTPUT / 'serial.log'}")
         result = subprocess.run(
             ssh + ["cat /proc/sys/kernel/random/boot_id"],
             capture_output=True, text=True,
@@ -37,8 +41,8 @@ def wait_ssh(ssh, qemu, previous_boot=None):
             return
         time.sleep(2)
     if previous_boot is not None:
-        raise TimeoutError("Guest never rebooted; inspect output/vm/serial.log")
-    raise TimeoutError("Guest SSH did not become ready; inspect output/vm/serial.log")
+        raise TimeoutError(f"Guest never rebooted; inspect {OUTPUT / 'serial.log'}")
+    raise TimeoutError(f"Guest SSH did not become ready; inspect {OUTPUT / 'serial.log'}")
 
 
 def power_transition(ssh, action, log):
@@ -49,7 +53,79 @@ def power_transition(ssh, action, log):
     )
 
 
+def assert_deployment(status, slot, digest):
+    deployment = status["status"][slot]
+    actual = deployment["image"]["imageDigest"] if deployment else None
+    if actual != digest:
+        raise RuntimeError(f"Expected {slot} image {digest}, got {actual}")
+
+
+def upgrade_digest(reference):
+    if not re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", reference):
+        raise RuntimeError("Upgrade test requires immutable image@sha256 references")
+    return reference.rsplit("@", 1)[1]
+
+
+def check_upgrade(ssh, qemu, log):
+    previous_digest = upgrade_digest(UPGRADE_FROM)
+    target_digest = upgrade_digest(UPGRADE_TO)
+    if previous_digest == target_digest:
+        raise RuntimeError("Upgrade baseline and candidate must be different images")
+
+    def status_at(stage):
+        status = json.loads(subprocess.check_output(ssh + ["bootc status --json"], text=True))
+        (OUTPUT / f"{stage}-status.json").write_text(json.dumps(status, indent=2) + "\n")
+        return status
+
+    def guest_check(stage):
+        with (ROOT / "tests" / "guest-upgrade.sh").open() as script:
+            run(ssh + [f"bash -s -- {stage}"], stdin=script, stdout=log,
+                stderr=subprocess.STDOUT, timeout=180)
+
+    assert_deployment(status_at("baseline"), "booted", previous_digest)
+    guest_check("baseline")
+    old_boot = subprocess.check_output(
+        ssh + ["cat /proc/sys/kernel/random/boot_id"], text=True
+    ).strip()
+    run(ssh + [f"bootc switch --enforce-container-sigpolicy {shlex.quote(UPGRADE_TO)}"],
+        stdout=log, stderr=subprocess.STDOUT, timeout=900)
+    status = status_at("staged")
+    assert_deployment(status, "booted", previous_digest)
+    assert_deployment(status, "staged", target_digest)
+    if subprocess.check_output(
+        ssh + ["cat /proc/sys/kernel/random/boot_id"], text=True
+    ).strip() != old_boot:
+        raise RuntimeError("Staging unexpectedly rebooted the guest")
+    power_transition(ssh, "reboot", log)
+    wait_ssh(ssh, qemu, previous_boot=old_boot)
+    status = status_at("upgraded")
+    assert_deployment(status, "booted", target_digest)
+    assert_deployment(status, "rollback", previous_digest)
+    if status["status"]["staged"] is not None:
+        raise RuntimeError("Candidate is still staged instead of fully booted")
+    guest_check("upgraded")
+    return {
+        "previous_image": UPGRADE_FROM,
+        "image": UPGRADE_TO,
+        "result": "PASS",
+        "checks": [
+            "Previous published digest booted with Secure Boot and its enrolled MOK",
+            "Signed candidate staged without rebooting; previous digest still running",
+            "New boot ID and exact candidate digest after reboot; no fallback",
+            "Previous deployment retained for rollback",
+            "ZFS automatically loads with the existing MOK and running kernel",
+            "ZFS pool auto-import, payload, snapshot, new writes and scrub after upgrade",
+            "Persistent /etc and /var data; SELinux enforcing",
+        ],
+    }
+
+
 def main():
+    if bool(UPGRADE_FROM) != bool(UPGRADE_TO):
+        raise RuntimeError("Set both UPGRADE_FROM_IMAGE and UPGRADE_TO_IMAGE")
+    if UPGRADE_FROM:
+        upgrade_digest(UPGRADE_FROM)
+        upgrade_digest(UPGRADE_TO)
     if os.geteuid() != 0:
         raise RuntimeError("Run with sudo (the installer uses rootful Podman)")
     for program in (
@@ -69,6 +145,8 @@ def main():
 
 def test():
     (OUTPUT / "result.json").unlink(missing_ok=True)
+    if UPGRADE_FROM:
+        run(["podman", "pull", UPGRADE_FROM])
     image = json.loads(
         subprocess.check_output(["podman", "image", "inspect", IMAGE], text=True)
     )[0]
@@ -102,6 +180,13 @@ def test():
     with cert.open("wb") as stream:
         run(["podman", "run", "--rm", IMAGE, "cat", "/usr/share/alma-hci/zfs.der"],
             stdout=stream)
+    if UPGRADE_FROM:
+        enrolled = OUTPUT / "OVMF_VARS.enrolled.fd"
+        run([
+            "virt-fw-vars", "--input", nvram, "--output", enrolled,
+            "--add-mok", "605dab50-e046-4300-abb6-3dd810dd8b23", cert,
+        ])
+        enrolled.replace(nvram)
     if not key.exists():
         run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key])
     for path, size in ((disk, "12G"), (data_disk, "1G")):
@@ -125,8 +210,8 @@ def test():
                 IMAGE, "bootc", "install", "to-disk", "--via-loopback",
                 "--generic-image", "--filesystem=xfs",
                 "--karg=console=ttyS0,115200n8",
-                "--root-ssh-authorized-keys=/output/vm/id_ed25519.pub",
-                "--skip-fetch-check", *target_options, "/output/vm/disk.raw",
+                f"--root-ssh-authorized-keys=/output/{OUTPUT.name}/id_ed25519.pub",
+                "--skip-fetch-check", *target_options, f"/output/{OUTPUT.name}/disk.raw",
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -167,6 +252,15 @@ def test():
             if status["status"]["booted"]["image"]["imageDigest"] != image["Digest"]:
                 raise RuntimeError("The booted image does not match the local image digest")
             with (OUTPUT / "checks.log").open("w") as log:
+                if UPGRADE_FROM:
+                    result = check_upgrade(ssh, qemu, log)
+                    power_transition(ssh, "poweroff", log)
+                    qemu.wait(timeout=60)
+                    if qemu.returncode != 0:
+                        raise RuntimeError(f"QEMU exited with {qemu.returncode}")
+                    (OUTPUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+                    print(json.dumps(result, indent=2), flush=True)
+                    return
                 with (ROOT / "tests" / "guest-check.sh").open() as script:
                     run(ssh + ["bash -s -- untrusted"], stdin=script, stdout=log,
                         stderr=subprocess.STDOUT, timeout=180)

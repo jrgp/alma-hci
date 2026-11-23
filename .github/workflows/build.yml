@@ -140,7 +140,7 @@ jobs:
           install -d -m 700 "$DOCKER_CONFIG"
           printf '%s' "$GH_TOKEN" | podman login --authfile "$REGISTRY_AUTH_FILE" \
             --username "$GITHUB_ACTOR" --password-stdin ghcr.io
-      - name: Publish candidate, test signature enforcement, then promote
+      - name: Sign candidate, verify upgrade from previous release, then promote
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
@@ -154,11 +154,13 @@ jobs:
           if sudo test -d output; then
             sudo chown "$USER:$USER" output
             sudo chmod 755 output
-            if sudo test -d output/vm; then
-              sudo chmod 755 output/vm
-              sudo find output/vm -maxdepth 1 -type f \( -name '*.log' -o -name 'result.json' \) \
-                -exec chmod 644 {} +
-            fi
+            for directory in output/vm output/vm-upgrade; do
+              if sudo test -d "$directory"; then
+                sudo chmod 755 "$directory"
+                sudo find "$directory" -maxdepth 1 -type f \( -name '*.log' -o -name '*status.json' -o -name 'result.json' \) \
+                  -exec chmod 644 {} +
+              fi
+            done
           fi
       - name: Upload test and publishing evidence (never keys or VM disks)
         if: always()
@@ -170,6 +172,9 @@ jobs:
           path: |
             output/vm/*.log
             output/vm/result.json
+            output/vm-upgrade/*.log
+            output/vm-upgrade/*status.json
+            output/vm-upgrade/result.json
             output/packages.txt
             output/kmod-build.txt
             output/published.json

@@ -11,7 +11,7 @@ ZFS_SIGNING_CERT ?= $(CURDIR)/zfs-signing.der
 .DEFAULT_GOAL := image
 .ONESHELL:
 .SHELLFLAGS := -eu -c
-.PHONY: image test test-image test-vm
+.PHONY: image test test-image test-vm test-upgrade
 
 image:
 	test -r "$(ZFS_SIGNING_KEY)"
@@ -44,3 +44,9 @@ test-vm:
 		INSTALL_TARGET_IMAGE=$(INSTALL_TARGET_IMAGE) python3 tests/test-vm.py
 
 test: test-image test-vm
+
+test-upgrade:
+	test -n "$(UPGRADE_FROM_IMAGE)"
+	test -n "$(UPGRADE_TO_IMAGE)"
+	$(SUDO) env UPGRADE_FROM_IMAGE="$(UPGRADE_FROM_IMAGE)" \
+		UPGRADE_TO_IMAGE="$(UPGRADE_TO_IMAGE)" python3 tests/test-vm.py

@@ -147,6 +147,13 @@ complete package inventory attached. Rebuilds can share the same source commit.
 Publication requires Secure Boot tests rejecting ZFS before enrollment and
 two ZFS/KVM boots after enrollment, with SELinux enforcing. Container-policy
 tests also reject unsigned images and accept signed ones.
+Before moving `:10`/`latest` or creating a release, CI also boots the previous
+published digest in a Secure Boot VM, creates a ZFS pool and snapshot, stages
+the signed candidate, and reboots. It requires the exact new digest to be
+booted (not merely staged or fallen back), with ZFS automatically loaded and
+the existing pool, data and snapshot intact. Only the previous image's MOK
+is enrolled; updates cannot silently depend on enrolling another key.
+The first-ever publication has no previous image, so that gate is not applicable.
 Private keys stay in Actions secrets `SIGNING_SECRET` (containers) and
 `ZFS_MODULE_SIGNING_KEY` (modules); only [`cosign.pub`](cosign.pub) and
 [`zfs-signing.der`](zfs-signing.der) are public. Container signatures use legacy
@@ -165,10 +172,26 @@ Tests require QEMU/KVM with nested virtualization, Secure Boot OVMF firmware,
 `virt-fw-vars`, 3 GiB free RAM and 8 GiB free disk space.
 Evidence is written under `output/vm/`.
 
+To test an upgrade between two distinct, signed published digests:
+
+```sh
+make test-upgrade \
+  UPGRADE_FROM_IMAGE=ghcr.io/jrgp/alma-hci@sha256:OLD_DIGEST \
+  UPGRADE_TO_IMAGE=ghcr.io/jrgp/alma-hci@sha256:NEW_DIGEST
+```
+
+This uses `bootc switch --enforce-container-sigpolicy` to stage the exact
+candidate without moving production tags; `switch` uses the same deployment
+operation as `upgrade` while changing the tracked reference.
+Evidence, including booted/staged digest records, is in `output/vm-upgrade/`.
+Allow additional disk space for the previous image and both VM deployments.
+Pull requests run the fresh-install tests; the signed upgrade gate runs on
+main when publishing, before promotion.
+
 ## Important limits
 
-The upstream bootc base is experimental. Image upgrade/rollback tests are
-not implemented.
+The upstream bootc base is experimental. The upgrade gate tests the immediately
+previous release, not every older release. Booting a rollback is not tested.
 The default container policy trusts only this project's signed repository;
 add explicit policies for other registries you use.
 Configure production networking with NetworkManager/nmstate, and manage
