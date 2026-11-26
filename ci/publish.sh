@@ -4,6 +4,7 @@ set -euo pipefail
 : "${IMAGE_REF:?}" "${LOCAL_IMAGE:?}" "${GITHUB_RUN_ID:?}" "${GITHUB_RUN_ATTEMPT:?}"
 : "${COSIGN_PRIVATE_KEY:?}" "${REGISTRY_AUTH_FILE:?}"
 : "${GITHUB_SHA:?}" "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}"
+: "${BASE_IMAGE:?}"
 
 mkdir -p output
 cosign public-key --key env://COSIGN_PRIVATE_KEY | cmp - cosign.pub
@@ -11,6 +12,16 @@ version="$(sudo podman image inspect "$LOCAL_IMAGE" \
     --format '{{index .Labels "org.opencontainers.image.version"}}')"
 [[ "$version" =~ ^[0-9]{8}\.[0-9]+\.[0-9]+$ ]]
 release_tag="10-${version}"
+base_digest="$(sudo podman image inspect "$LOCAL_IMAGE" \
+    --format '{{index .Labels "org.opencontainers.image.base.digest"}}')"
+if [[ "$base_digest" != "${BASE_IMAGE##*@}" ]]; then
+    echo "The requested upstream base does not match the built image's base digest" >&2
+    exit 1
+fi
+base_version="$(skopeo inspect "docker://${BASE_IMAGE}" | jq -er \
+    '.Labels["org.opencontainers.image.version"] |
+     if type == "string" and length > 0 then .
+     else error("The upstream Alma bootc image has no version label") end')"
 rpm_format='%{NAME}\t%{ARCH}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n'
 sudo podman run --rm "$LOCAL_IMAGE" rpm -qa --qf "$rpm_format" \
     > output/current-packages.tsv
@@ -74,10 +85,11 @@ fi
 
 jq -n --arg image "$reference" --arg candidate "$candidate" \
     --arg release_tag "$release_tag" --arg previous "$previous_reference" \
-    --arg revision "$GITHUB_SHA" \
+    --arg revision "$GITHUB_SHA" --arg base_image "$BASE_IMAGE" --arg base_version "$base_version" \
     '{image: $image, candidate: $candidate, release_tag: $release_tag,
       previous_image: (if $previous == "" then null else $previous end),
-      revision: $revision, signatures: "verified", policy: "unsigned rejected; signed accepted"}' \
+      revision: $revision, base_image: $base_image, base_version: $base_version,
+      signatures: "verified", policy: "unsigned rejected; signed accepted"}' \
     > output/published.json
 python3 ci/release-notes.py --current output/current-packages.tsv \
     "${previous_options[@]}" --metadata output/published.json \

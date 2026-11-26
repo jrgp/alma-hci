@@ -52,6 +52,8 @@ def release_notes(metadata, previous, current, repository, run_url):
         f"| Build | Value |\n| --- | --- |\n"
         f"| Dated image | `{image_repo}:{tag}` |\n"
         f"| Immutable image | `{image}` |\n"
+        f"| Upstream Alma bootc version | `{metadata['base_version']}` |\n"
+        f"| Upstream Alma bootc image | `{metadata['base_image']}` |\n"
         f"| Source | [{revision[:7]}](https://github.com/{repository}/commit/{revision}) |\n"
         f"| Workflow | [Build and verification]({run_url}) |\n\n"
         f"## Package changes\n\n{comparison}\n\n"

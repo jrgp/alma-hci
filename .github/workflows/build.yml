@@ -143,6 +143,7 @@ jobs:
       - name: Sign candidate, verify upgrade from previous release, then promote
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
+          BASE_IMAGE: ${{ needs.check.outputs.base_image }}
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           COSIGN_PASSWORD: ''
           GH_TOKEN: ${{ github.token }}

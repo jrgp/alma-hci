@@ -54,11 +54,18 @@ class ReleaseNotesTests(unittest.TestCase):
             "image": "ghcr.io/jrgp/alma-hci@sha256:new",
             "revision": "abcdef123456",
             "previous_image": "ghcr.io/jrgp/alma-hci@sha256:old",
+            "base_version": "10.3.20261119.0",
+            "base_image": "quay.io/almalinuxorg/almalinux-bootc:10@sha256:base",
         }
         body = notes.release_notes(metadata, packages, packages, "jrgp/alma-hci", "run-url")
         self.assertIn("No RPM changes detected.", body)
         self.assertIn("ghcr.io/jrgp/alma-hci@sha256:old", body)
         self.assertIn("ghcr.io/jrgp/alma-hci:10-20261120.42.1", body)
+        self.assertIn("| Upstream Alma bootc version | `10.3.20261119.0` |", body)
+        self.assertIn(
+            "| Upstream Alma bootc image | "
+            "`quay.io/almalinuxorg/almalinux-bootc:10@sha256:base` |", body
+        )
         metadata["previous_image"] = None
         body = notes.release_notes(metadata, {}, packages, "jrgp/alma-hci", "run-url")
         self.assertIn("First publication", body)
