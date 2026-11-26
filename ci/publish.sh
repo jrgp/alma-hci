@@ -18,7 +18,10 @@ if [[ "$base_digest" != "${BASE_IMAGE##*@}" ]]; then
     echo "The requested upstream base does not match the built image's base digest" >&2
     exit 1
 fi
-base_version="$(skopeo inspect "docker://${BASE_IMAGE}" | jq -er \
+# CI's BASE_IMAGE includes a tag; Skopeo requires a digest-only reference.
+base_reference="${BASE_IMAGE%@*}"
+base_reference="${base_reference%:*}@${base_digest}"
+base_version="$(skopeo inspect "docker://${base_reference}" | jq -er \
     '.Labels["org.opencontainers.image.version"] |
      if type == "string" and length > 0 then .
      else error("The upstream Alma bootc image has no version label") end')"
@@ -85,7 +88,7 @@ fi
 
 jq -n --arg image "$reference" --arg candidate "$candidate" \
     --arg release_tag "$release_tag" --arg previous "$previous_reference" \
-    --arg revision "$GITHUB_SHA" --arg base_image "$BASE_IMAGE" --arg base_version "$base_version" \
+    --arg revision "$GITHUB_SHA" --arg base_image "$base_reference" --arg base_version "$base_version" \
     '{image: $image, candidate: $candidate, release_tag: $release_tag,
       previous_image: (if $previous == "" then null else $previous end),
       revision: $revision, base_image: $base_image, base_version: $base_version,

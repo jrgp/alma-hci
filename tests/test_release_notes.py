@@ -1,5 +1,7 @@
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -55,7 +57,7 @@ class ReleaseNotesTests(unittest.TestCase):
             "revision": "abcdef123456",
             "previous_image": "ghcr.io/jrgp/alma-hci@sha256:old",
             "base_version": "10.3.20261119.0",
-            "base_image": "quay.io/almalinuxorg/almalinux-bootc:10@sha256:base",
+            "base_image": "quay.io/almalinuxorg/almalinux-bootc@sha256:base",
         }
         body = notes.release_notes(metadata, packages, packages, "jrgp/alma-hci", "run-url")
         self.assertIn("No RPM changes detected.", body)
@@ -64,7 +66,7 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertIn("| Upstream Alma bootc version | `10.3.20261119.0` |", body)
         self.assertIn(
             "| Upstream Alma bootc image | "
-            "`quay.io/almalinuxorg/almalinux-bootc:10@sha256:base` |", body
+            "`quay.io/almalinuxorg/almalinux-bootc@sha256:base` |", body
         )
         metadata["previous_image"] = None
         body = notes.release_notes(metadata, {}, packages, "jrgp/alma-hci", "run-url")
@@ -79,6 +81,63 @@ class ReleaseNotesTests(unittest.TestCase):
                     path.write_text(content)
                     with self.assertRaises(ValueError):
                         notes.read_packages(path)
+
+    def check_publish_base(self, version="10.3.20261125.0"):
+        root = Path(__file__).resolve().parents[1]
+        digest = "sha256:" + "1" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "cosign.pub").write_text("test public key\n")
+            for name, content in {
+                "cosign": "#!/bin/sh\ncat cosign.pub\n",
+                "sudo": """#!/bin/sh
+case "$*" in
+    *image.base.digest*) printf '%s\\n' "$TEST_BASE_DIGEST" ;;
+    *image.version*) printf '20261126.42.1\\n' ;;
+    *) echo 'Stopped after reading base metadata' >&2; exit 99 ;;
+esac
+""",
+                "skopeo": """#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+Path("inspected-reference").write_text(sys.argv[-1])
+if ":10@" in sys.argv[-1]:
+    sys.exit("Skopeo does not support tag and digest together")
+print(json.dumps({"Labels": {"org.opencontainers.image.version": os.environ["TEST_BASE_VERSION"]}}))
+""",
+            }.items():
+                command = path / name
+                command.write_text(content)
+                command.chmod(0o755)
+            env = dict(os.environ)
+            env.update({
+                "PATH": f"{path}:{env['PATH']}",
+                "BASE_IMAGE": f"quay.io/almalinuxorg/almalinux-bootc:10@{digest}",
+                "TEST_BASE_DIGEST": digest,
+                "TEST_BASE_VERSION": version,
+                **{name: "test" for name in (
+                    "IMAGE_REF", "LOCAL_IMAGE", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT",
+                    "COSIGN_PRIVATE_KEY", "REGISTRY_AUTH_FILE", "GITHUB_SHA",
+                    "GITHUB_REPOSITORY", "GH_TOKEN",
+                )},
+            })
+            result = subprocess.run(
+                ["bash", str(root / "ci" / "publish.sh")], cwd=path, env=env,
+                capture_output=True, text=True,
+            )
+            return result, (path / "inspected-reference").read_text(), digest
+
+    def test_publish_inspects_exact_base_digest_without_its_tag(self):
+        result, reference, digest = self.check_publish_base()
+        self.assertEqual(result.returncode, 99, result.stderr)
+        self.assertIn("Stopped after reading base metadata", result.stderr)
+        self.assertEqual(reference, f"docker://quay.io/almalinuxorg/almalinux-bootc@{digest}")
+
+    def test_publish_rejects_an_upstream_image_without_a_version(self):
+        result, _, _ = self.check_publish_base(version="")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("The upstream Alma bootc image has no version label", result.stderr)
+        self.assertNotIn("Stopped after reading base metadata", result.stderr)
 
 
 if __name__ == "__main__":
